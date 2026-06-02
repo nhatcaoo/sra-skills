@@ -34,6 +34,7 @@ python3 "$SCRIPT" onboard                        # setup status + getting-starte
 python3 "$SCRIPT" token   --token "<pasted>"     # cache token (raw JWT/Bearer/curl all ok)
 python3 "$SCRIPT" token                          # show cached token status
 python3 "$SCRIPT" profile                        # show saved profile
+python3 "$SCRIPT" allocation --start D --end D [--user-id N]  # assigned projects + ratios (authoritative)
 python3 "$SCRIPT" check    --start D --end D      # human-readable status (no write)
 python3 "$SCRIPT" context  --start D --end D      # full state as JSON (for you)
 python3 "$SCRIPT" calendar --start D --end D [--file plan.json]  # month grid
@@ -71,19 +72,27 @@ via `--exclude` (or store recurring leave in the profile).
 `missingWorkingDays` (0h) and `underLoggedDays` (below target)** — never duplicate
 a full day.
 
-### 4. Projects & allocation — use the profile
-- If `profile.json` has `projects` + ratios, propose that split and ask only to
-  confirm/tweak.
-- Otherwise propose a split from `context.projects` (history — may be stale), let
-  the user correct it, and **write it to `~/.claude/.sra/profile.json`** so next
-  time is one step. Profile shape:
+### 4. Projects & allocation — `allocation` is the source of truth
+Run `allocation --start D --end D`. It reads the user's real assignments
+(`users/<id>.workingHistory`, the SRA "Working Details") and returns the projects
+**actually allocated in that period** with effort-based ratios. This is far more
+reliable than `context.projects` (which is worklog *history* and is often stale —
+the current assigned project may have no past worklogs).
+
+- First time, you need the SRA `userId`: ask the user for the number in their
+  `users/<id>` profile URL (e.g. 226), pass `--user-id N` once — it's saved to the
+  profile. If a user pastes a `users/<id>` curl, extract the id from the URL.
+- Propose the returned split, let the user confirm/tweak, and **write it to
+  `~/.claude/.sra/profile.json`**. Profile shape:
   ```json
-  {"username":"nhatcl","hoursPerDay":8,"language":"en",
-   "projects":[{"projectId":1597,"code":"SSO_2506_OS","name":"Poc Tm Asset","ratio":0.6},
-               {"projectId":1422,"code":"SWI_2503_DS","name":"Superwhale","ratio":0.4}],
+  {"username":"nhatcl","userId":226,"hoursPerDay":8,"language":"en",
+   "projects":[{"projectId":1188,"code":"SOSC_BLC_01","name":"Blockchain: Pre-sale","ratio":0.87},
+               {"projectId":1729,"code":"SOSC_LnD_100","name":"Project 100","ratio":0.13}],
    "fixedLeave":[]}
   ```
   `projectId 0` = the generic "Other" project.
+- If `allocation` returns empty (period not planned yet) or no `userId` is known,
+  fall back to the most recent allocation / `context.projects` and ask the user.
 
 ### 5. Generate beautiful data
 For missing/under-logged days build entries:

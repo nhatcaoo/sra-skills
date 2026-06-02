@@ -164,6 +164,20 @@ def load_profile() -> dict:
     return {}
 
 
+def save_profile(updates: dict) -> dict:
+    """Merge updates into profile.json (created if absent)."""
+    prof = load_profile()
+    prof.update(updates)
+    ensure_state_dir()
+    with open(PROFILE_FILE, "w", encoding="utf-8") as f:
+        json.dump(prof, f, ensure_ascii=False, indent=2)
+    try:
+        os.chmod(PROFILE_FILE, 0o600)
+    except OSError:
+        pass
+    return prof
+
+
 def load_holidays(years) -> dict:
     """{date_iso: name} for the requested years, from the bundled JSON."""
     out = {}
@@ -339,6 +353,15 @@ def cmd_onboard(args):
         print(f"      Chưa có. Sẽ tạo ở lần log đầu khi bạn chốt dự án + tỉ lệ.")
         print(f"      File: {PROFILE_FILE}")
 
+    # Step 2b — SRA user id (for auto allocation)
+    uid = prof.get("userId")
+    print(f"\n[{ok if uid else todo}] 2b. SRA user id (tự lấy allocation)")
+    if uid:
+        print(f"      userId={uid} — chạy `allocation` để lấy dự án + tỉ lệ thật.")
+    else:
+        print("      Chưa có. Mở trang profile trên SRA, lấy số trong URL users/<id>")
+        print("      (vd users/226) → mình lưu 1 lần, sau đó tự đọc allocation.")
+
     # Step 3 — holidays
     hol = load_holidays([dt.date.today().year])
     print(f"\n[{ok if hol else todo}] 3. Lịch lễ VN {dt.date.today().year}"
@@ -467,6 +490,56 @@ def cmd_calendar(args):
         d2 += dt.timedelta(days=7)
 
 
+def cmd_allocation(args):
+    """Assigned projects + ratios for a range, from users/<id>.workingHistory.
+    This is the authoritative allocation source (the SRA 'Working Details')."""
+    token = resolve_token(args)
+    start, end = parse_date(args.start), parse_date(args.end)
+    prof = load_profile()
+    uid = args.user_id or prof.get("userId")
+    if not uid:
+        die("no SRA user id. Pass --user-id <n> — find it in the users/<id> URL "
+            "on your SRA profile page (DevTools/Network). It will be saved to the "
+            "profile so you only do this once.")
+    if args.user_id and prof.get("userId") != args.user_id:
+        save_profile({"userId": args.user_id})
+        warn(f"saved userId={args.user_id} to profile.")
+
+    st, u = api("GET", f"users/{uid}", token, args.base)
+    if st != 200:
+        die(f"users/{uid} fetch failed (HTTP {st}): {u}")
+
+    s, e = start.isoformat(), end.isoformat()
+    agg = {}
+    for w in u.get("workingHistory", []) or []:
+        ws, we = (w.get("startDate") or "")[:10], (w.get("endDate") or "")[:10]
+        if not ws or not we or ws > e or we < s:  # no overlap with [start,end]
+            continue
+        pid = w.get("projectId")
+        a = agg.setdefault(pid, {"projectId": pid,
+                                 "code": w.get("projectCode", ""),
+                                 "name": w.get("name", ""), "effort": 0.0})
+        a["effort"] += w.get("totalEffort") or 0
+
+    total = sum(a["effort"] for a in agg.values())
+    projects = sorted(agg.values(), key=lambda a: a["effort"], reverse=True)
+    for a in projects:
+        a["effort"] = round(a["effort"], 2)
+        a["ratio"] = round(a["effort"] / total, 3) if total else 0
+
+    print(json.dumps({
+        "userId": uid, "name": u.get("name"), "username": u.get("username"),
+        "range": {"start": s, "end": e},
+        "allocations": projects,
+        "totalEffort": round(total, 2),
+        "note": "Ratios from allocated effort (workingHistory) overlapping the "
+                "range — authoritative source for which projects to log to."
+                if projects else
+                "No allocation overlaps this range (period may not be planned "
+                "yet). Fall back to the most recent allocation or ask the user.",
+    }, ensure_ascii=False, indent=2))
+
+
 def cmd_submit(args):
     token = resolve_token(args)
     try:
@@ -541,6 +614,15 @@ def main():
     auth(cal); range_args(cal)
     cal.add_argument("--file", help="optional plan JSON to overlay as planned")
     cal.set_defaults(func=cmd_calendar)
+
+    al = sub.add_parser("allocation",
+                        help="assigned projects + ratios for a range (users/<id>)")
+    auth(al)
+    al.add_argument("--start", required=True, help="YYYY-MM-DD")
+    al.add_argument("--end", required=True, help="YYYY-MM-DD")
+    al.add_argument("--user-id", type=int, default=None,
+                    help="SRA numeric user id (saved to profile on first use)")
+    al.set_defaults(func=cmd_allocation)
 
     s = sub.add_parser("submit", help="POST a reviewed plan file")
     auth(s)

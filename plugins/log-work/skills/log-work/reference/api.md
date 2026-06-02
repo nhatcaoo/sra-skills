@@ -15,9 +15,28 @@ The WAF returns **403** to non-browser User-Agents, so requests must send a real
 | Create worklogs (batch) | `POST` | `user/worklogs` | body `{"workLogs":[ ... ]}`, content-type `text/plain` |
 | Read all worklogs | `GET` | `worklogs?username=<u>` | returns full history; **date filter is ignored** → filter client-side |
 | Type-of-work enum | `GET` | `timesheet/type-of-work` | `{"typeOfWorks":[{id,name,description}]}` |
+| **User + allocation** | `GET` | `users/{id}` | profile + `workingHistory[]` (the "Working Details" allocation) |
 | Update one worklog | `PUT` | `user/worklogs/{id}` | (not used in v1) |
 | Delete one worklog | `DELETE` | `user/worklogs/{id}` | (not used in v1) |
 | Excel import | `POST` | `timesheet/worklogs/import` | multipart (not used in v1) |
+
+### `users/{id}` → allocation (the authoritative project list)
+`{id}` is the SRA **numeric user id** (e.g. 226), not the username. There is no
+username→id lookup for a normal user (`users?username=` returns 403), so grab the
+id from the `users/<id>` URL on your SRA profile page and store it.
+
+```json
+{"id":226,"username":"nhatcl","name":"Cao Linh Nhật","totalProjects":13,
+ "workingHistory":[
+   {"name":"Blockchain: Pre-sale","projectId":1188,"projectCode":"SOSC_BLC_01",
+    "startDate":"2026-05-01","endDate":"2026-05-29","totalEffort":168.0,"evaluation":"N/A"},
+   {"name":"Project 100","projectId":1729,"projectCode":"SOSC_LnD_100",
+    "startDate":"2026-05-01","endDate":"2026-05-29","totalEffort":25.83}
+ ]}
+```
+Filter `workingHistory` to entries overlapping the target period, then split by
+`totalEffort` → allocation ratios. These `projectId`s are the real, current ones
+to log to (may differ from past worklog projectIds).
 
 ## Write payload (POST user/worklogs)
 

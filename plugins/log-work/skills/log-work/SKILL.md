@@ -40,16 +40,16 @@ python3 "$SCRIPT" context  --start D --end D      # full state as JSON (for you)
 python3 "$SCRIPT" calendar --start D --end D [--file plan.json]  # month grid
 python3 "$SCRIPT" submit   --file plan.json [--dry-run]
 ```
-`context`/`check`/`calendar` apply `profile.json` defaults (username, hoursPerDay,
-fixedLeave) and bundled VN holidays (`reference/vn_holidays.json`) automatically.
+`context`/`check`/`calendar` apply `profile.json` defaults (userId, hoursPerDay,
+fixedLeave) and fetch VN holidays live from the `holidays` API automatically.
 
 ## Onboarding (first run / "hướng dẫn", "how do I use this")
 Run `onboard` — it prints a setup checklist (token / profile / holidays) + usage
 examples. Then **interactively walk the user through whatever is missing**:
 1. If no valid token → guide them to grab a curl (step in `onboard` output) and
-   run `token --curl /tmp/sra.curl`.
-2. If no profile → ask which projects they're assigned to + the % split + language,
-   then write `~/.claude/.sra/profile.json` (shape in step 4 below).
+   run `token --token "<pasted>"` (or `--curl /tmp/sra.curl`).
+2. `userId` is then auto-resolved — no question needed. Optionally ask the user's
+   preferred description language and save it (`{"language":"vi"}`).
 3. Offer a dry first run: `check` the current month so they see it working with no
    risk. Don't submit anything during onboarding.
 
@@ -72,40 +72,36 @@ via `--exclude` (or store recurring leave in the profile).
 `missingWorkingDays` (0h) and `underLoggedDays` (below target)** — never duplicate
 a full day.
 
-### 4. Projects & allocation — `allocation` is the source of truth
+### 4. Projects & allocation — fetch FRESH every time (never persist)
 Run `allocation --start D --end D`. It reads the user's real assignments
 (`users/<id>.workingHistory`, the SRA "Working Details") and returns the projects
-**actually allocated in that period** with effort-based ratios. This is far more
-reliable than `context.projects` (which is worklog *history* and is often stale —
-the current assigned project may have no past worklogs).
+**actually allocated in that exact period** with effort-based ratios.
 
-- First time, you need the SRA `userId`: ask the user for the number in their
-  `users/<id>` profile URL (e.g. 226), pass `--user-id N` once — it's saved to the
-  profile. If a user pastes a `users/<id>` curl, extract the id from the URL.
-- Propose the returned split, let the user confirm/tweak, and **write it to
-  `~/.claude/.sra/profile.json`**. Profile shape:
-  ```json
-  {"username":"nhatcl","userId":226,"hoursPerDay":8,"language":"en",
-   "projects":[{"projectId":1188,"code":"SOSC_BLC_01","name":"Blockchain: Pre-sale","ratio":0.87},
-               {"projectId":1729,"code":"SOSC_LnD_100","name":"Project 100","ratio":0.13}],
-   "fixedLeave":[]}
-  ```
-  `projectId 0` = the generic "Other" project.
-- If `allocation` returns empty (period not planned yet) or no `userId` is known,
-  fall back to the most recent allocation / `context.projects` and ask the user.
+- **`userId` is auto-resolved** (via `users/current-user`) and cached — no manual
+  entry. The profile stores only stable prefs: `userId`, `hoursPerDay`, `language`,
+  `fixedLeave`. **Do NOT persist projects/ratios** — allocations expire (each entry
+  has start/end dates) and change month to month, so a frozen list goes stale.
+  Always re-run `allocation` for the period being logged.
+- `projectId 0` = the generic "Other" project (the only one the SRA UI offers when
+  no allocation is active — but see note below: the API accepts the real ids).
+- If `allocation` returns empty (period not planned yet), tell the user and ask
+  which project(s) to use (or fall back to `0`/Other).
 
-### 5. Generate beautiful data
-For missing/under-logged days build entries:
-- **Distribute by ratio**: `hours_per_project ≈ total × ratio`. Prefer
-  **contiguous day-blocks per project** over daily switching. Avoid splitting one
-  day across many projects unless allocation demands it.
-- **Under-logged days**: add only the remaining hours (target − logged).
-- **typeOfWork**: weight to the project's `topTypeOfWork` (usually Coding), mix in
-  plausible variety (Requirements Development, Review, Bug Fixing, Unit Test). Use
-  the integer **id** from the enum in the payload.
-- **descriptions**: short (~5–12 words), concrete, on-domain, varied day to day,
-  in the profile's language (ask if unset). An occasional 6–7h day is fine, keep
-  the period total on target.
+### 5. Ask what the user actually did, THEN generate
+Do **not** invent work blindly. For the projects in scope, **ask the user a short
+narrative first** — e.g. "Trên *Blockchain: Pre-sale* tháng này bạn làm gì? (vd: 5
+ngày liền fix bug ở staging, 2 ngày làm API…)". Use their answer to drive:
+- **which days go to which project** (honour their "5 ngày liền" etc.), staying
+  close to the allocation ratio for the totals;
+- **typeOfWork** per day (their narrative says bug fixing → `Bug Fixing` id 8,
+  etc.); fall back to the project's historical `topTypeOfWork` only for gaps;
+- **descriptions**: short (~5–12 words), concrete, on-domain, varied, in the
+  profile's language — derived from what they told you, never `n/A`/placeholder.
+
+Then build entries for the missing/under-logged days:
+- **Distribute by ratio**: `hours_per_project ≈ total × ratio`; prefer contiguous
+  day-blocks; under-logged days get only the remaining hours (target − logged).
+- An occasional 6–7h day is fine; keep the period total on target.
 
 ### 6. Preview → approve
 Write the plan, render `calendar --file plan.json`, and show a table
@@ -128,7 +124,12 @@ Still never write placeholder descriptions.
 
 ## Notes
 - Batch all entries in one `submit`.
+- **projectId ≠ 0 works.** The SRA UI only shows "Other" (0) when no allocation is
+  active *today* (`datalake/project` → `available_projects:[]`), but the **API
+  accepts any allocated projectId for past dates** (verified: POST 201). So log to
+  the real allocated projects from `allocation`, not just `0`.
+- Holidays are fetched **live** from the `holidays` API (auto-correct per year);
+  `vn_holidays.json` is only an offline fallback. Still confirm personal leave.
+- `userId` is auto-resolved via `users/current-user`; stored in the profile.
 - Self-contained & shareable: SKILL.md + scripts/ + reference/. Nothing hardcoded
-  except the public API base; per-user data lives in `~/.claude/.sra/`.
-- Lunar holidays in `vn_holidays.json` follow the government schedule — verify the
-  yearly notice; the skill still confirms leave with the user.
+  except the public API base; per-user state lives in `~/.claude/.sra/`.

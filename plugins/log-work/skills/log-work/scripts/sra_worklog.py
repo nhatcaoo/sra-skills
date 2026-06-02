@@ -179,7 +179,7 @@ def save_profile(updates: dict) -> dict:
 
 
 def load_holidays(years) -> dict:
-    """{date_iso: name} for the requested years, from the bundled JSON."""
+    """{date_iso: name} for the requested years, from the bundled JSON (offline)."""
     out = {}
     try:
         data = json.load(open(HOLIDAYS_FILE, encoding="utf-8"))
@@ -188,6 +188,34 @@ def load_holidays(years) -> dict:
     for y in years:
         out.update(data.get(str(y), {}))
     return out
+
+
+def fetch_holidays(token, base, years) -> dict:
+    """Live VN holidays from the SRA `holidays` API, expanded to {date: name}.
+    Falls back to the bundled JSON if the request fails."""
+    out = {}
+    for y in years:
+        st, data = api("GET", f"holidays?limit=200&page=1&filter%5Byear%5D={y}",
+                       token, base)
+        if st != 200 or not isinstance(data, dict):
+            return load_holidays(years)  # offline fallback
+        for h in data.get("data", []):
+            s, e = (h.get("start") or "")[:10], (h.get("end") or "")[:10]
+            if not s:
+                continue
+            d, end = parse_date(s), parse_date(e or s)
+            while d <= end:
+                out[d.isoformat()] = h.get("name", "Holiday")
+                d += dt.timedelta(days=1)
+    return out
+
+
+def fetch_current_user_id(token, base):
+    """Resolve the caller's own SRA numeric user id via users/current-user."""
+    st, u = api("GET", "users/current-user", token, base)
+    if st == 200 and isinstance(u, dict) and u.get("id"):
+        return u["id"]
+    return None
 
 
 # --------------------------------------------------------------------------- #
@@ -249,7 +277,8 @@ def gather(token, base, username, start, end, exclude, target):
         die(f"worklogs fetch failed (HTTP {st}): {wl}")
     logs = wl.get("workLogs", []) or []
 
-    holidays = {k: v for k, v in load_holidays(range(start.year, end.year + 1)).items()
+    holidays = {k: v for k, v in
+                fetch_holidays(token, base, range(start.year, end.year + 1)).items()
                 if start.isoformat() <= k <= end.isoformat()}
     excl = set(exclude or []) | set(holidays)
 
@@ -340,31 +369,30 @@ def cmd_onboard(args):
         print("      nhập SSO) → F12 → Network → bấm 1 request sra-api → copy giá trị")
         print("      header 'authorization: Bearer ...' (hoặc Copy as cURL) rồi dán.")
 
-    # Step 2 — profile
+    # Step 2 — SRA user id (auto-resolved) + preferences
     prof = load_profile()
-    prof_ready = bool(prof.get("projects"))
-    print(f"\n[{ok if prof_ready else todo}] 2. Profile (dự án + tỉ lệ)")
-    if prof_ready:
-        who = prof.get("username", "?")
-        line = ", ".join(f"{p['code']} {int(p.get('ratio',0)*100)}%"
-                         for p in prof["projects"])
-        print(f"      {who} · {prof.get('hoursPerDay',8)}h/ngày · {line}")
-    else:
-        print(f"      Chưa có. Sẽ tạo ở lần log đầu khi bạn chốt dự án + tỉ lệ.")
-        print(f"      File: {PROFILE_FILE}")
-
-    # Step 2b — SRA user id (for auto allocation)
     uid = prof.get("userId")
-    print(f"\n[{ok if uid else todo}] 2b. SRA user id (tự lấy allocation)")
+    if not uid and token_ready:
+        tok2 = open(TOKEN_FILE, encoding="utf-8").read().strip()
+        uid = fetch_current_user_id(tok2, args.base)
+        if uid:
+            prof = save_profile({"userId": uid})
+    print(f"\n[{ok if uid else todo}] 2. Hồ sơ (userId + tuỳ chọn)")
     if uid:
-        print(f"      userId={uid} — chạy `allocation` để lấy dự án + tỉ lệ thật.")
+        print(f"      userId={uid} (tự lấy) · {prof.get('hoursPerDay',8)}h/ngày"
+              f" · mô tả: {prof.get('language','?')}")
+        print("      Dự án + tỉ lệ KHÔNG lưu cứng — lấy tươi theo kỳ qua `allocation`.")
     else:
-        print("      Chưa có. Mở trang profile trên SRA, lấy số trong URL users/<id>")
-        print("      (vd users/226) → mình lưu 1 lần, sau đó tự đọc allocation.")
+        print("      Chưa lấy được userId (cần token hợp lệ ở bước 1).")
 
-    # Step 3 — holidays
-    hol = load_holidays([dt.date.today().year])
-    print(f"\n[{ok if hol else todo}] 3. Lịch lễ VN {dt.date.today().year}"
+    # Step 3 — holidays (live từ API nếu có token)
+    yr = dt.date.today().year
+    if token_ready:
+        tok2 = open(TOKEN_FILE, encoding="utf-8").read().strip()
+        hol = fetch_holidays(tok2, args.base, [yr])
+    else:
+        hol = load_holidays([yr])
+    print(f"\n[{ok if hol else todo}] 3. Lịch lễ VN {yr}"
           f"  ({len(hol)} ngày, tự loại khỏi ngày công)")
 
     # Usage
@@ -375,8 +403,8 @@ def cmd_onboard(args):
     print("  Luồng: đọc trạng thái → đề xuất dữ liệu đẹp → preview (bảng + lịch)")
     print("         → bạn duyệt → submit → verify lại. Không bao giờ ghi khi chưa duyệt.")
 
-    ready = token_ready and prof_ready
-    print(f"\n=> Trạng thái: {'SẴN SÀNG ✓' if ready else 'cần hoàn tất bước ' + ('1' if not token_ready else '2') + ' ở trên'}\n")
+    ready = token_ready and bool(uid)
+    print(f"\n=> Trạng thái: {'SẴN SÀNG ✓' if ready else 'cần hoàn tất bước ' + ('1 (token)' if not token_ready else '2 (userId)') + ' ở trên'}\n")
 
 
 def cmd_token(args):
@@ -496,14 +524,13 @@ def cmd_allocation(args):
     token = resolve_token(args)
     start, end = parse_date(args.start), parse_date(args.end)
     prof = load_profile()
-    uid = args.user_id or prof.get("userId")
+    uid = args.user_id or prof.get("userId") or fetch_current_user_id(token, args.base)
     if not uid:
-        die("no SRA user id. Pass --user-id <n> — find it in the users/<id> URL "
-            "on your SRA profile page (DevTools/Network). It will be saved to the "
-            "profile so you only do this once.")
-    if args.user_id and prof.get("userId") != args.user_id:
-        save_profile({"userId": args.user_id})
-        warn(f"saved userId={args.user_id} to profile.")
+        die("could not resolve your SRA user id (users/current-user failed). "
+            "Pass --user-id <n> from your users/<id> profile URL.")
+    if prof.get("userId") != uid:
+        save_profile({"userId": uid})
+        warn(f"saved userId={uid} to profile.")
 
     st, u = api("GET", f"users/{uid}", token, args.base)
     if st != 200:
@@ -595,6 +622,7 @@ def main():
                         help="hours per working day (default profile or 8)")
 
     ob = sub.add_parser("onboard", help="first-run guide + setup status")
+    auth(ob)
     ob.set_defaults(func=cmd_onboard)
 
     t = sub.add_parser("token", help="show/set cached token + expiry")

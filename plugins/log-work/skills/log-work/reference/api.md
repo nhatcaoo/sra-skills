@@ -12,18 +12,30 @@ The WAF returns **403** to non-browser User-Agents, so requests must send a real
 
 | Purpose | Method | Path | Notes |
 |---|---|---|---|
-| Create worklogs (batch) | `POST` | `user/worklogs` | body `{"workLogs":[ ... ]}`, content-type `text/plain` |
+| Create worklogs (batch) | `POST` | `user/worklogs` | body `{"workLogs":[ ... ]}`, content-type `text/plain`; returns 201 |
 | Read all worklogs | `GET` | `worklogs?username=<u>` | returns full history; **date filter is ignored** → filter client-side |
 | Type-of-work enum | `GET` | `timesheet/type-of-work` | `{"typeOfWorks":[{id,name,description}]}` |
-| **User + allocation** | `GET` | `users/{id}` | profile + `workingHistory[]` (the "Working Details" allocation) |
+| **Own user id** | `GET` | `users/current-user` | `{id,username,name,...}` → auto-resolve `userId` (no username→id lookup otherwise) |
+| **User + allocation** | `GET` | `users/{id}` | profile + `workingHistory[]` (the "Working Details" allocation, with start/end dates) |
+| **VN holidays** | `GET` | `holidays?limit=200&page=1&filter[year]=YYYY` | `{data:[{name,start,end}]}` date ranges → expand to days. Authoritative; auto per-year |
+| Loggable projects (today) | `GET` | `datalake/project` | `{available_projects:[...]}` — what the UI dropdown shows; **empty when no active allocation** |
+| Delete one worklog | `DELETE` | `user/worklogs/{id}` | returns 204 |
 | Update one worklog | `PUT` | `user/worklogs/{id}` | (not used in v1) |
-| Delete one worklog | `DELETE` | `user/worklogs/{id}` | (not used in v1) |
 | Excel import | `POST` | `timesheet/worklogs/import` | multipart (not used in v1) |
+
+### projectId restriction is UI-only, not enforced by the API
+`datalake/project` returns the projects loggable **right now** (based on active
+allocation). When all allocations have ended it returns `[]`, so the SRA UI only
+offers "Other" (`projectId 0`). **But the write API does not enforce this** —
+`POST user/worklogs` with a real allocated `projectId` for a **past date** succeeds
+(verified: HTTP 201, then `DELETE` 204). So the skill logs to the real projects
+from `allocation`, regardless of what the current UI dropdown shows.
 
 ### `users/{id}` → allocation (the authoritative project list)
 `{id}` is the SRA **numeric user id** (e.g. 226), not the username. There is no
-username→id lookup for a normal user (`users?username=` returns 403), so grab the
-id from the `users/<id>` URL on your SRA profile page and store it.
+username→id *search* for a normal user (`users?username=` returns 403), but
+`GET users/current-user` returns your own id — the skill uses that to resolve and
+cache `userId` automatically.
 
 ```json
 {"id":226,"username":"nhatcl","name":"Cao Linh Nhật","totalProjects":13,

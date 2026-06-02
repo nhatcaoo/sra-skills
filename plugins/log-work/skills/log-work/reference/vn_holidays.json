@@ -1,16 +1,20 @@
 {
-  "_note": "Vietnam public holidays (weekday off-days), used to auto-exclude from working days. Lunar-based dates (Tet, Hung Kings) shift yearly and the official schedule is announced by the government — VERIFY against the official notice before a real run. The skill still asks the user to confirm leave/holidays.",
+  "_note": "OFFLINE FALLBACK ONLY. The skill fetches holidays live from the SRA `holidays?filter[year]=` API (authoritative, auto-correct per year, returned as date ranges). This file is used only if that request fails. Keep it roughly in sync with the API.",
   "2026": {
-    "2026-01-01": "Tết Dương lịch",
-    "2026-02-16": "Tết Nguyên Đán (30 Tết)",
-    "2026-02-17": "Tết Nguyên Đán (mùng 1)",
-    "2026-02-18": "Tết Nguyên Đán (mùng 2)",
-    "2026-02-19": "Tết Nguyên Đán (mùng 3)",
-    "2026-02-20": "Tết Nguyên Đán (mùng 4)",
-    "2026-04-27": "Giỗ Tổ Hùng Vương (nghỉ bù)",
-    "2026-04-30": "Ngày Giải phóng miền Nam",
-    "2026-05-01": "Quốc tế Lao động",
-    "2026-09-01": "Quốc khánh (nghỉ bù)",
-    "2026-09-02": "Quốc khánh"
+    "2026-01-01": "New Year Day 2026",
+    "2026-02-16": "Lunar New Year Day 2026",
+    "2026-02-17": "Lunar New Year Day 2026",
+    "2026-02-18": "Lunar New Year Day 2026",
+    "2026-02-19": "Lunar New Year Day 2026",
+    "2026-02-20": "Lunar New Year Day 2026",
+    "2026-04-25": "Giỗ Tổ Hùng Vương",
+    "2026-04-26": "Giỗ Tổ Hùng Vương",
+    "2026-04-27": "Giỗ Tổ Hùng Vương",
+    "2026-04-30": "30/4 và 1/5",
+    "2026-05-01": "30/4 và 1/5",
+    "2026-05-02": "30/4 và 1/5",
+    "2026-05-03": "30/4 và 1/5",
+    "2026-09-01": "Quốc Khánh",
+    "2026-09-02": "Quốc Khánh"
   }
 }

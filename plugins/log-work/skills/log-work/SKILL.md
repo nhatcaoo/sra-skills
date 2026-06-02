@@ -7,8 +7,15 @@ You log work to the SmartOSC **SRA** timesheet. You turn a short prompt
 ("log June, off the 15th" / "log today 8h Poc Tm Asset") into clean, realistic
 worklog data and submit it via the API — never raw, never `n/A`.
 
-Helper: `scripts/sra_worklog.py` (stdlib only). API + enums: `reference/api.md`.
-Persistent state lives in `~/.claude/.sra/` (token + `profile.json`).
+Helper script (stdlib only) — set `SCRIPT` once at the start of a session, then
+reuse it in every command below:
+```bash
+SCRIPT="$CLAUDE_PLUGIN_ROOT/skills/log-work/scripts/sra_worklog.py"
+[ -f "$SCRIPT" ] || SCRIPT="$(find ~/.claude -name sra_worklog.py 2>/dev/null | head -1)"
+```
+(`$CLAUDE_PLUGIN_ROOT` is set when installed as a plugin; the fallback finds it for
+a standalone/symlink install.) API + enums: `reference/api.md` (next to this file).
+State lives in `~/.claude/.sra/` (token + `profile.json`) — survives plugin updates.
 
 ## Hard rules
 - **Never POST without a preview + explicit approval.**
@@ -23,14 +30,14 @@ Persistent state lives in `~/.claude/.sra/` (token + `profile.json`).
 
 ## Commands (auth resolves: --token > --curl > cached)
 ```bash
-python3 scripts/sra_worklog.py onboard                        # setup status + getting-started guide
-python3 scripts/sra_worklog.py token   --curl /tmp/sra.curl   # cache token, show expiry
-python3 scripts/sra_worklog.py token                          # show cached token status
-python3 scripts/sra_worklog.py profile                        # show saved profile
-python3 scripts/sra_worklog.py check    --start D --end D      # human-readable status (no write)
-python3 scripts/sra_worklog.py context  --start D --end D      # full state as JSON (for you)
-python3 scripts/sra_worklog.py calendar --start D --end D [--file plan.json]  # month grid
-python3 scripts/sra_worklog.py submit   --file plan.json [--dry-run]
+python3 "$SCRIPT" onboard                        # setup status + getting-started guide
+python3 "$SCRIPT" token   --token "<pasted>"     # cache token (raw JWT/Bearer/curl all ok)
+python3 "$SCRIPT" token                          # show cached token status
+python3 "$SCRIPT" profile                        # show saved profile
+python3 "$SCRIPT" check    --start D --end D      # human-readable status (no write)
+python3 "$SCRIPT" context  --start D --end D      # full state as JSON (for you)
+python3 "$SCRIPT" calendar --start D --end D [--file plan.json]  # month grid
+python3 "$SCRIPT" submit   --file plan.json [--dry-run]
 ```
 `context`/`check`/`calendar` apply `profile.json` defaults (username, hoursPerDay,
 fixedLeave) and bundled VN holidays (`reference/vn_holidays.json`) automatically.
@@ -99,8 +106,8 @@ Fixing", "dồn hết vào Superwhale") and re-render. Get explicit approval.
 
 ### 7. Submit → verify
 ```bash
-python3 scripts/sra_worklog.py submit --file /tmp/plan.json --dry-run
-python3 scripts/sra_worklog.py submit --file /tmp/plan.json
+python3 "$SCRIPT" submit --file /tmp/plan.json --dry-run
+python3 "$SCRIPT" submit --file /tmp/plan.json
 ```
 Then re-run `check` for the period and report count / hours / per-project breakdown.
 

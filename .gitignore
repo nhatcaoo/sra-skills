@@ -1,0 +1,6 @@
+# Skill state — cached SRA bearer token + personal profile (never commit)
+.sra/
+
+# Python
+__pycache__/
+*.pyc

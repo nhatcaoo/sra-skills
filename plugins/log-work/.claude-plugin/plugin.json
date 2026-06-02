@@ -1,7 +1,6 @@
 {
   "name": "log-work",
   "description": "Log work / fill the SmartOSC SRA timesheet (sra.smartosc.com/time-sheet) from a short prompt. Detects missing/under-logged days, distributes hours across assigned projects to 100%, previews (table + calendar), and submits via the SRA API after approval. Caches the session token + a project profile.",
-  "version": "1.0.0",
   "author": {
     "name": "nhatcaoo"
   },

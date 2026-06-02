@@ -11,7 +11,6 @@
       "name": "log-work",
       "source": "./plugins/log-work",
       "description": "Log work / fill the SmartOSC SRA timesheet from a short prompt — detects missing or under-logged days, distributes hours across assigned projects to hit 100%, previews, and submits via the SRA API.",
-      "version": "1.0.0",
       "category": "productivity",
       "keywords": ["timesheet", "worklog", "smartosc", "sra"]
     }
